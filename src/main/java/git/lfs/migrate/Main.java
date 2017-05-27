@@ -3,6 +3,8 @@ package git.lfs.migrate;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import org.apache.http.HttpStatus;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.ssl.SSLContexts;
@@ -22,6 +24,7 @@ import ru.bozaro.gitlfs.client.auth.AuthProvider;
 import ru.bozaro.gitlfs.client.auth.BasicAuthProvider;
 import ru.bozaro.gitlfs.client.exceptions.ForbiddenException;
 import ru.bozaro.gitlfs.client.exceptions.RequestException;
+import ru.bozaro.gitlfs.client.internal.HttpClientExecutor;
 import ru.bozaro.gitlfs.common.data.*;
 import ru.bozaro.gitlfs.common.data.Error;
 
@@ -42,6 +45,35 @@ import java.util.stream.Stream;
  *
  * @author a.navrotskiy
  */
+
+class VsoClient extends Client{
+
+  public VsoClient(@NotNull AuthProvider authProvider, @NotNull final HttpClient http) {
+    super(authProvider, new HttpClientExecutor(http));
+  }
+
+  @Override
+  protected void addHeaders(@NotNull HttpUriRequest req, @Nullable Link link) {
+    if (link != null) {
+      for (Map.Entry<String, String> entry : link.getHeader().entrySet()) {
+        if (entry.getKey() != "Transfer-Encoding") {
+          req.addHeader(entry.getKey(), entry.getValue());
+        }
+      }
+    }
+    if (req.getHeaders("Authorization").length == 0){
+      AuthProvider authProvider = this.getAuthProvider();
+      if (authProvider != null) {
+        try {
+          String authorization = authProvider.getAuth(Operation.Upload).getHeader().get("Authorization");
+          req.addHeader("Authorization", authorization);
+        } catch (IOException e) {
+          e.printStackTrace();
+        }
+      }
+    }
+  }
+}
 public class Main {
   @NotNull
   private static final Logger log = LoggerFactory.getLogger(Main.class);
@@ -102,7 +134,7 @@ public class Main {
           .loadTrustMaterial((chain, authType) -> true)
           .build());
     }
-    return new Client(auth, httpBuilder.build());
+    return new VsoClient(auth, httpBuilder.build());
   }
 
   private static boolean checkLfsAuthenticate(@Nullable Client client) throws IOException {
